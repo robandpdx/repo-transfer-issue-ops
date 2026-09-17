@@ -10,9 +10,9 @@ Users submit a GitHub issue form with:
 - source repository: `owner/repository`
 - destination repository: `owner/repository`
 - destination visibility: `internal` or `private` (`internal` by default)
-- whether the transferred repository should be archived
+- whether the transferred repository should be archived or unarchived
 
-The workflow uses a user personal access token to validate repositories, perform the transfer, update visibility, and optionally archive the transferred repository.
+The workflow uses a user personal access token to validate repositories, perform the transfer, update visibility, and optionally archive or unarchive the transferred repository.
 
 This solution assumes it is deployed in a GitHub Enterprise Cloud environment with Enterprise Managed Users.
 
@@ -30,9 +30,10 @@ This solution assumes it is deployed in a GitHub Enterprise Cloud environment wi
 4. The workflow verifies that the destination repository does not already exist.
 5. The workflow transfers the source repository to the destination owner and name.
 6. The workflow waits for the transferred repository to become available at the destination.
-7. The workflow updates visibility to `internal` or `private`.
-8. If requested, the workflow archives the repository.
-9. The workflow comments on the issue and closes it on success.
+7. If requested, the workflow unarchives the repository.
+8. The workflow updates visibility to `internal` or `private`.
+9. If requested, the workflow archives the repository. This runs after unarchiving, so archive takes precedence when both options are selected.
+10. The workflow comments on the issue and closes it on success.
 
 ## Transfer token requirements
 
@@ -83,7 +84,7 @@ Add these repository or organization secrets to the issue-ops repository:
 5. Choose the destination visibility:
    - `internal` (default)
    - `private`
-6. Select the archive option if the repository should be archived after transfer.
+6. Select the archive or unarchive option if the repository's archive state should change after transfer. If both are selected, the repository will be archived.
 7. Submit the issue.
 
 The workflow will:
@@ -92,7 +93,7 @@ The workflow will:
 - verify that the source repository exists and that the destination repository name is still available
 - transfer the repository with the configured user PAT
 - set the requested visibility with the configured user PAT
-- optionally archive the repository with the configured user PAT
+- optionally unarchive or archive the repository with the configured user PAT, with archive taking precedence
 - comment with the result
 
 The workflow only runs for issues that have the `repository-transfer` label. The included issue form applies that label automatically, so the label must already exist in the issue-ops repository before users submit requests.

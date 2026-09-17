@@ -44,3 +44,10 @@ body:
       description: Select this if the repository should be archived after the transfer completes.
       options:
         - label: Archive the repository after transfer
+  - type: checkboxes
+    id: unarchive_repository
+    attributes:
+      label: Unarchive repository
+      description: Select this if the repository should be unarchived after the transfer completes.
+      options:
+        - label: Unarchive the repository after transfer

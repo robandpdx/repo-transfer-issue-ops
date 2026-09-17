@@ -50,6 +50,8 @@ jobs:
 
             const archiveSection = getSection("Archive repository").toLowerCase();
             const archive = archiveSection.includes("[x]");
+            const unarchiveSection = getSection("Unarchive repository").toLowerCase();
+            const unarchive = unarchiveSection.includes("[x]");
 
             core.setOutput("source_owner", source.owner);
             core.setOutput("source_repo", source.repo);
@@ -57,6 +59,7 @@ jobs:
             core.setOutput("destination_repo", destination.repo);
             core.setOutput("visibility", visibility);
             core.setOutput("archive", String(archive));
+            core.setOutput("unarchive", String(unarchive));
 
       - name: Validate transfer PAT secret
         env:
@@ -159,11 +162,20 @@ jobs:
           DESTINATION_REPO: ${{ steps.parse.outputs.destination_repo }}
           DESTINATION_VISIBILITY: ${{ steps.parse.outputs.visibility }}
           ARCHIVE_REPOSITORY: ${{ steps.parse.outputs.archive }}
+          UNARCHIVE_REPOSITORY: ${{ steps.parse.outputs.unarchive }}
         with:
           github-token: ${{ secrets.REPO_TRANSFER_PAT }}
           script: |
             const owner = process.env.DESTINATION_OWNER;
             const repo = process.env.DESTINATION_REPO;
+
+            if (process.env.UNARCHIVE_REPOSITORY === "true") {
+              await github.rest.repos.update({
+                owner,
+                repo,
+                archived: false
+              });
+            }
 
             await github.rest.repos.update({
               owner,
@@ -185,6 +197,7 @@ jobs:
         with:
           script: |
             const archiveText = "${{ steps.parse.outputs.archive }}" === "true" ? "yes" : "no";
+            const unarchiveText = "${{ steps.parse.outputs.unarchive }}" === "true" ? "yes" : "no";
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -195,7 +208,8 @@ jobs:
                 `- Source: \`${{ steps.parse.outputs.source_owner }}/${{ steps.parse.outputs.source_repo }}\``,
                 `- Destination: \`${{ steps.parse.outputs.destination_owner }}/${{ steps.parse.outputs.destination_repo }}\``,
                 `- Visibility: \`${{ steps.parse.outputs.visibility }}\``,
-                `- Archived: \`${archiveText}\``
+                `- Archive requested: \`${archiveText}\``,
+                `- Unarchive requested: \`${unarchiveText}\``
               ].join("\n")
             });
 
