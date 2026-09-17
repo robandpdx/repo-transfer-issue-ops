@@ -1,0 +1,46 @@
+name: Repository transfer request
+description: Request transfer of a repository within an Enterprise Managed Users enterprise.
+title: "Repository transfer: "
+labels:
+  - repository-transfer
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submit this form to transfer a repository within your Enterprise Managed Users enterprise using the repository transfer issue-ops workflow.
+
+        If the source repository is in a user's personal space, first invite `your_organization_admin` as an **admin** on that repository and wait for the invitation to be accepted before opening this issue.
+  - type: input
+    id: source_repository
+    attributes:
+      label: Source repository
+      description: Enter the current repository location in owner/repository format.
+      placeholder: octocat/example-repo
+    validations:
+      required: true
+  - type: input
+    id: destination_repository
+    attributes:
+      label: Destination repository
+      description: Enter the target repository location in owner/repository format.
+      placeholder: my-org/example-repo
+    validations:
+      required: true
+  - type: dropdown
+    id: visibility
+    attributes:
+      label: Destination visibility
+      description: Select the visibility to apply after the transfer.
+      options:
+        - internal
+        - private
+      default: 0
+    validations:
+      required: true
+  - type: checkboxes
+    id: archive_repository
+    attributes:
+      label: Archive repository
+      description: Select this if the repository should be archived after the transfer completes.
+      options:
+        - label: Archive the repository after transfer

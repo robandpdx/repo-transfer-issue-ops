@@ -1,0 +1,224 @@
+name: Repository transfer issue ops
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  transfer-repository:
+    if: contains(join(github.event.issue.labels.*.name, ','), 'repository-transfer')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse issue request
+        id: parse
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+            const getSection = (heading) => {
+              const pattern = new RegExp(`### ${heading}\\s*\\n+([\\s\\S]*?)(?=\\n### |$)`, "i");
+              const match = body.match(pattern);
+              return match ? match[1].trim() : "";
+            };
+
+            const parseRepository = (value, fieldName) => {
+              const match = value.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+              if (!match) {
+                throw new Error(`${fieldName} must be in owner/repository format.`);
+              }
+
+              return {
+                owner: match[1],
+                repo: match[2],
+              };
+            };
+
+            const source = parseRepository(getSection("Source repository"), "Source repository");
+            const destination = parseRepository(getSection("Destination repository"), "Destination repository");
+            const visibility = (getSection("Destination visibility") || "internal").toLowerCase();
+
+            if (!["internal", "private"].includes(visibility)) {
+              throw new Error("Destination visibility must be either internal or private.");
+            }
+
+            const archiveSection = getSection("Archive repository").toLowerCase();
+            const archive = archiveSection.includes("[x]");
+
+            core.setOutput("source_owner", source.owner);
+            core.setOutput("source_repo", source.repo);
+            core.setOutput("destination_owner", destination.owner);
+            core.setOutput("destination_repo", destination.repo);
+            core.setOutput("visibility", visibility);
+            core.setOutput("archive", String(archive));
+
+      - name: Validate transfer PAT secret
+        env:
+          REPO_TRANSFER_PAT: ${{ secrets.REPO_TRANSFER_PAT }}
+        run: |
+          if [ -z "$REPO_TRANSFER_PAT" ]; then
+            echo "::error::Missing REPO_TRANSFER_PAT secret. Configure a user personal access token for an account that can administer the source repository and complete the transfer into the destination owner."
+            exit 1
+          fi
+
+      - name: Validate source repository exists
+        id: validate-source
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ secrets.REPO_TRANSFER_PAT }}
+          script: |
+            const owner = "${{ steps.parse.outputs.source_owner }}";
+            const repo = "${{ steps.parse.outputs.source_repo }}";
+            try {
+              await github.rest.repos.get({ owner, repo });
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+              core.setOutput("commented", "true");
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `Source repository \`${owner}/${repo}\` was not found or is not accessible to the configured transfer PAT.`
+              });
+              core.setFailed(`Source repository ${owner}/${repo} was not found.`);
+            }
+
+      - name: Validate destination repository does not exist
+        id: validate-destination
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ secrets.REPO_TRANSFER_PAT }}
+          script: |
+            const owner = "${{ steps.parse.outputs.destination_owner }}";
+            const repo = "${{ steps.parse.outputs.destination_repo }}";
+            try {
+              await github.rest.repos.get({ owner, repo });
+              core.setOutput("commented", "true");
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `Destination repository \`${owner}/${repo}\` already exists. Choose a different destination repository name and resubmit the request.`
+              });
+              core.setFailed(`Destination repository ${owner}/${repo} already exists.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+      - name: Transfer repository
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ secrets.REPO_TRANSFER_PAT }}
+          script: |
+            await github.rest.repos.transfer({
+              owner: "${{ steps.parse.outputs.source_owner }}",
+              repo: "${{ steps.parse.outputs.source_repo }}",
+              new_owner: "${{ steps.parse.outputs.destination_owner }}",
+              new_name: "${{ steps.parse.outputs.destination_repo }}"
+            });
+
+      - name: Wait for destination repository
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          DESTINATION_OWNER: ${{ steps.parse.outputs.destination_owner }}
+          DESTINATION_REPO: ${{ steps.parse.outputs.destination_repo }}
+        with:
+          github-token: ${{ secrets.REPO_TRANSFER_PAT }}
+          script: |
+            const owner = process.env.DESTINATION_OWNER;
+            const repo = process.env.DESTINATION_REPO;
+
+            for (let attempt = 1; attempt <= 30; attempt += 1) {
+              try {
+                await github.rest.repos.get({ owner, repo });
+                core.info(`Repository is available at ${owner}/${repo}.`);
+                return;
+              } catch (error) {
+                if (error.status !== 404 || attempt === 30) {
+                  throw error;
+                }
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 10000));
+            }
+
+      - name: Apply repository settings
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          DESTINATION_OWNER: ${{ steps.parse.outputs.destination_owner }}
+          DESTINATION_REPO: ${{ steps.parse.outputs.destination_repo }}
+          DESTINATION_VISIBILITY: ${{ steps.parse.outputs.visibility }}
+          ARCHIVE_REPOSITORY: ${{ steps.parse.outputs.archive }}
+        with:
+          github-token: ${{ secrets.REPO_TRANSFER_PAT }}
+          script: |
+            const owner = process.env.DESTINATION_OWNER;
+            const repo = process.env.DESTINATION_REPO;
+
+            await github.rest.repos.update({
+              owner,
+              repo,
+              visibility: process.env.DESTINATION_VISIBILITY
+            });
+
+            if (process.env.ARCHIVE_REPOSITORY === "true") {
+              await github.rest.repos.update({
+                owner,
+                repo,
+                archived: true
+              });
+            }
+
+      - name: Comment on success
+        if: success()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const archiveText = "${{ steps.parse.outputs.archive }}" === "true" ? "yes" : "no";
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                "Repository transfer completed successfully.",
+                "",
+                `- Source: \`${{ steps.parse.outputs.source_owner }}/${{ steps.parse.outputs.source_repo }}\``,
+                `- Destination: \`${{ steps.parse.outputs.destination_owner }}/${{ steps.parse.outputs.destination_repo }}\``,
+                `- Visibility: \`${{ steps.parse.outputs.visibility }}\``,
+                `- Archived: \`${archiveText}\``
+              ].join("\n")
+            });
+
+      - name: Close issue on success
+        if: success()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: "closed"
+            });
+
+      - name: Comment on failure
+        if: failure() && steps.validate-source.outputs.commented != 'true' && steps.validate-destination.outputs.commented != 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "Repository transfer failed. Review the workflow run logs for details."
+            });
