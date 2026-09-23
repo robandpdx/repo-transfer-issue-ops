@@ -8,22 +8,20 @@ body:
     attributes:
       value: |
         Submit this form to transfer a repository within your Enterprise Managed Users enterprise using the repository transfer issue-ops workflow.
-
-        If the source repository is in a user's personal space, first invite `your_organization_admin` as an **admin** on that repository and wait for the invitation to be accepted before opening this issue.
   - type: input
     id: source_repository
     attributes:
       label: Source repository
-      description: Enter the current repository location in owner/repository format.
-      placeholder: octocat/example-repo
+      description: Enter the current repository location in organization/repository format.
+      placeholder: source-org/example-repo
     validations:
       required: true
   - type: input
     id: destination_repository
     attributes:
       label: Destination repository
-      description: Enter the target repository location in owner/repository format.
-      placeholder: my-org/example-repo
+      description: Enter the target repository location in organization/repository format.
+      placeholder: destination-org/example-repo
     validations:
       required: true
   - type: dropdown
